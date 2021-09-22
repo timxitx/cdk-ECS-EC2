@@ -1,0 +1,23 @@
+version: "2.1"
+
+services:
+  localstack:
+    container_name: "${LOCALSTACK_DOCKER_NAME-api-localstack_main}"
+    image: localstack/localstack:latest
+    network_mode: bridge
+    ports:
+      - "4566:4566"
+      - "4567:4567"
+    environment:
+      - SERVICES=s3,sqs,dynamodb
+      - DEBUG=${DEBUG- }
+      - DATA_DIR=tmp/localstack
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOST_TMP_FOLDER=${TMPDIR}
+      - DEFAULT_REGION=us-east-2
+      - IMAGE_NAME=localstack/localstack-full
+    volumes:
+      - "${TMPDIR:-/tmp/localstack}:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - $HOME/.aws/credentials:/home/app/.aws/credentials:ro
+ 
