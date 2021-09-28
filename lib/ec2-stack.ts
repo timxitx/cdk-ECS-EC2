@@ -9,6 +9,8 @@ import * as elbv2 from '@aws-cdk/aws-elasticloadbalancingv2';
 import * as autoscaling from '@aws-cdk/aws-autoscaling';
 import { ManagedPolicy } from '@aws-cdk/aws-iam';
 import { Peer, Port } from '@aws-cdk/aws-ec2';
+import * as acm from '@aws-cdk/aws-certificatemanager';
+import * as route53 from '@aws-cdk/aws-route53';
 
 
 export class EC2Stack extends cdk.Stack {
@@ -17,6 +19,8 @@ export class EC2Stack extends cdk.Stack {
     securityGroup: SecurityGroup;
     repoNames: string[];
     cluster: Cluster;
+    lb: elbv2.ApplicationLoadBalancer;
+    cert: acm.Certificate;
   
     constructor(scope: cdk.Construct, id: string, repoNames: string[], props?: cdk.StackProps) {
         super(scope, id, props);
@@ -35,6 +39,7 @@ export class EC2Stack extends cdk.Stack {
         });
         this.securityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(22), 'Allows SSH access from Internet');
         this.securityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80), 'Allows HTTP access from Internet');
+        this.securityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), 'Allows HTTPS access from Internet');
         // this.securityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(7070), 'Allows inbound traffic on this port');
         // this.securityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(8080), 'Allows inbound traffic on this port');
         // this.securityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(9090), 'Allows inbound traffic on this port');
@@ -43,8 +48,8 @@ export class EC2Stack extends cdk.Stack {
 
         //create ecr and cluster
         this.cluster = new Cluster(this, "project2", {
-        clusterName: "project2",
-        vpc: this.vpc
+            clusterName: "project2",
+            vpc: this.vpc
         });
 
         //create autoscallingGroup
@@ -59,6 +64,13 @@ export class EC2Stack extends cdk.Stack {
             healthCheck: autoscaling.HealthCheck.ec2(),
         });
         this.cluster.addAutoScalingGroup(autoScalingGroup);
+
+        //create load balancer
+        this.lb = new elbv2.ApplicationLoadBalancer(this, 'LB', {
+            vpc: this.vpc,
+            internetFacing: true,
+            securityGroup: this.securityGroup,
+        });
     }
 
     public createEC2Service(ecrRepositories: ecr.Repository[], ports: number[]) {
@@ -85,19 +97,16 @@ export class EC2Stack extends cdk.Stack {
                 taskDefinition: taskDefinition,
             });
 
-            //create load balancer
-            const lb = new elbv2.ApplicationLoadBalancer(this, 'LB'+this.repoNames[i], {
-                vpc: this.vpc,
-                internetFacing: true,
-                securityGroup: this.securityGroup,
-            });
-            const listener = lb.addListener('Listener'+this.repoNames[i], { 
+            const listener = this.lb.addListener('Listener'+this.repoNames[i], { 
                 port: ports[i],
-                protocol: elbv2.ApplicationProtocol.HTTP,
+                protocol: elbv2.ApplicationProtocol.HTTPS,
+                certificates: [elbv2.ListenerCertificate.fromArn("arn:aws:iam::837684165413:server-certificate/ssl-certificate")],
+                sslPolicy: elbv2.SslPolicy.TLS12
             });
+
             const target = listener.addTargets("t-"+this.repoNames[i], {
                 port: ports[i],
-                protocol: elbv2.ApplicationProtocol.HTTP,
+                protocol: elbv2.ApplicationProtocol.HTTPS,
                 targets: [service],
                 healthCheck: {
                     path: "/actuator/health",
